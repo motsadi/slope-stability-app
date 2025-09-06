@@ -13,6 +13,7 @@ import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Arc
 import streamlit as st
 
 from sklearn.model_selection import train_test_split
@@ -268,28 +269,77 @@ cm = confusion_matrix(yte, pred)
 st.markdown(f"#### Confusion matrix — {best_name}")
 st.write(pd.DataFrame(cm, index=["Actual Failure","Actual Stable"], columns=["Pred Failure","Pred Stable"]))
 
-# -------------------- Slope sketch --------------------
-def draw_slope(H, beta_deg):
+# -------------------- Slope sketch (clean & dynamic) --------------------
+st.subheader("🖊️ Slope sketch")
+
+# Bench length only affects the drawing (your dataset doesn't include it)
+default_B = float(max(1.0, 0.4 * H))  # ~40% of H by default
+B = st.slider("Bench length B (m) — sketch only", 0.0, max(2.0*H, 30.0), default_B, 0.5)
+
+def draw_slope(H, beta_deg, B):
+    """
+    Geometry:
+        (0,0) ───── base origin
+        (0,H)       vertical cut (y-axis)
+        (B,H)       horizontal bench length B
+        (B + H/tanβ, 0)  toe at ground line
+    """
     beta = math.radians(beta_deg)
-    L = max(H / max(math.tan(beta), 1e-3), 0.5)
-    x = [0, L, 0, 0]
-    y = [H, 0, 0, H]
-    fig, ax = plt.subplots(figsize=(6,3))
-    ax.fill(x, y, color="#cfcfd1")
-    ax.plot(x, y, "k-")
+    run = H / max(math.tan(beta), 1e-3)           # horizontal run of the sloping face
+    toe_x = B + run
+
+    # polygon (counter-clockwise): base → vertical → bench → slope → back to base
+    x = [0.0, 0.0, B, toe_x, 0.0]
+    y = [0.0, H,   H,  0.0,   0.0]
+
+    fig, ax = plt.subplots(figsize=(8, 3.8))
+    # Fill & outline
+    ax.fill(x, y, color="#d6d7db", zorder=1)
+    ax.plot(x, y, "k-", linewidth=2, zorder=2)
+
+    # Extend ground line a bit beyond the toe to the right
+    ax.plot([0, toe_x*1.06], [0, 0], "k-", linewidth=1)
+
+    # Axes styling (minimalist like the screenshot)
     ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(-0.1*L, 1.1*L)
-    ax.set_ylim(-0.05*H, 1.25*H)
-    ax.set_xlabel("Horizontal distance (m)")
-    ax.set_ylabel("Elevation (m)")
-    ax.grid(True, alpha=0.25)
-    ax.annotate("", xy=(-0.05*L, H), xytext=(-0.05*L, 0), arrowprops=dict(arrowstyle="<->", color="blue"))
-    ax.text(-0.08*L, H/2, f"H = {H:.1f} m", color="blue", rotation=90, va="center", ha="right")
-    ax.text(L*0.85, 0.06*H, f"β = {beta_deg:.1f}°")
+    ax.set_xlim(-0.08*toe_x, toe_x*1.10)
+    ax.set_ylim(-0.06*H, H*1.20)
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ["top","right"]:
+        ax.spines[spine].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+
+    # Y "axis" line at x≈0 (like the screenshot)
+    ax.plot([0, 0], [0, H*1.05], color="black", linewidth=1.5)
+
+    # Height double-arrow + label (blue)
+    ax.annotate("", xy=(-0.05*toe_x, H), xytext=(-0.05*toe_x, 0),
+                arrowprops=dict(arrowstyle="<->", color="#1f77b4", lw=2))
+    ax.text(-0.07*toe_x, H/2, f"H = {H:.1f} m",
+            color="#1f77b4", rotation=90, va="center", ha="right", fontsize=10)
+
+    # Angle arc at the toe
+    # Draw a small arc with center at the toe to represent β
+    arc_r = 0.10 * min(H, run)  # radius
+    arc = Arc((toe_x, 0), width=2*arc_r, height=2*arc_r,
+              angle=0, theta1=180-beta_deg, theta2=180, color="black", lw=1.5)
+    ax.add_patch(arc)
+    # Angle label slightly above the arc
+    ax.text(toe_x - arc_r*0.80, arc_r*0.50, f"β = {beta_deg:.1f}°", fontsize=10)
+
+    # Bench dimension hint (subtle)
+    if B > 0:
+        ax.annotate("", xy=(0, H*1.04), xytext=(B, H*1.04),
+                    arrowprops=dict(arrowstyle="<->", color="#555", lw=1))
+        ax.text(B/2, H*1.06, f"B = {B:.1f} m", color="#555", ha="center", va="bottom", fontsize=9)
+
+    # Light grid baseline for context (very faint)
+    ax.grid(False)
     st.pyplot(fig)
 
-st.subheader("🖊️ Slope sketch")
-draw_slope(H, beta)
+draw_slope(H, beta, B)
+
 
 # -------------------- Data preview --------------------
 st.subheader("🧾 Data (first 20)")
